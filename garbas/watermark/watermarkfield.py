@@ -1,5 +1,5 @@
-
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
+from PIL.ImageEnhance import Brightness
 from cStringIO import StringIO
 from AccessControl import ClassSecurityInfo
 from Products.Archetypes.Field import ImageField
@@ -13,6 +13,7 @@ class WatermarkImageField(ImageField):
     _properties.update({
         'watermark': None,
         'watermark_position': 'bottom_right',
+        'watermark_margin': (0, 0),
     })
 
     security = ClassSecurityInfo()
@@ -58,17 +59,36 @@ class WatermarkImageField(ImageField):
         image = Image.open(f_image)
         if image.mode != 'RGBA':
             image = image.convert('RGBA')
-        # create a transparent layer the size of the 
-        # image and draw the watermark in that layer.
-        layer = Image.new('RGBA', image.size, (0,0,0,0))
         mark = Image.open(self.watermark)
         if self.watermark_position == 'bottom_right':
-            position = (layer.size[0]-mark.size[0], layer.size[1]-mark.size[1])
-            layer.paste(mark, position)
+            position = (image.size[0]-mark.size[0]-self.watermark_margin[0], image.size[1]-mark.size[1]-self.watermark_margin[1])
+        elif self.watermark_position == 'bottom_left':
+            position = (0+self.watermark_margin[0], image.size[1]-mark.size[1]-self.watermark_margin[1])
+        elif self.watermark_position == 'top_left':
+            position = (0+self.watermark_margin[0], 0+self.watermark_margin[1])
+        elif self.watermark_position == 'top_right':
+            position = (image.size[0]-mark.size[0]-self.watermark_margin[0], 0+self.watermark_margin[1])
         else: 
-            # TODO :: only supports bottom_right option till know.
-            raise 'TODO :: only supports bottom_right option till know.'
-        image = Image.composite(layer, image, layer)
+            raise Exception("Unknown watermark_position specified")
+        instance.plone_log("Rendering image")
+        image.paste(mark, position, mark)
+        textlayer = Image.new("RGBA", image.size, (0,0,0,0))
+        textdraw = ImageDraw.Draw(textlayer)
+        text = "Picture from: %s" % instance.Creator()
+        instance.plone_log("After Creator()")
+        font = ImageFont.truetype("/usr/share/fonts/truetype/ttf-sil-gentium/GenAR102.ttf", 16)
+        instance.plone_log("After font")
+        textsize = textdraw.textsize(text, font=font)
+        instance.plone_log("After textsize")
+        textpos = [image.size[i]-textsize[i]-self.watermark_margin[i] for i in [0,1]]
+        instance.plone_log("After textpos")
+        textback = Image.new("RGBA", (textsize[0]+self.watermark_margin[0], textsize[1]+self.watermark_margin[1]), (255,255,255,255))
+        textlayer.paste(textback, (textpos[0]-(self.watermark_margin[0]/2), textpos[1]-(self.watermark_margin[1]/2)), textback)
+        textdraw.text(textpos, text, font=font, fill='Black')
+        instance.plone_log("After textdraw")
+        textlayer = self._reduce_opacity(textlayer, 0.7)
+        instance.plone_log("Before noop")
+        image = Image.composite(textlayer, image, textlayer)
         f_data = StringIO()
         image.save(f_data, 'jpeg')
         data = f_data.getvalue()
@@ -78,6 +98,14 @@ class WatermarkImageField(ImageField):
         # TODO add self.ZCacheable_invalidate() later
         self.createOriginal(instance, data, **kwargs)
         self.createScales(instance, value=data)
+
+    def _reduce_opacity(self, image, opacity):
+        """Returns an image with reduced opacity."""
+        assert opacity >= 0 and opacity <= 1
+        alpha = image.split()[3]
+        alpha = Brightness(alpha).enhance(opacity)
+        image.putalpha(alpha)
+        return image
 
 
 registerField(WatermarkImageField,
