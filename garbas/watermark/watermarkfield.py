@@ -1,3 +1,4 @@
+import os.path
 from PIL import Image, ImageDraw, ImageFont
 from PIL.ImageEnhance import Brightness
 from cStringIO import StringIO
@@ -70,24 +71,18 @@ class WatermarkImageField(ImageField):
             position = (image.size[0]-mark.size[0]-self.watermark_margin[0], 0+self.watermark_margin[1])
         else: 
             raise Exception("Unknown watermark_position specified")
-        instance.plone_log("Rendering image")
         image.paste(mark, position, mark)
         textlayer = Image.new("RGBA", image.size, (0,0,0,0))
         textdraw = ImageDraw.Draw(textlayer)
         text = "Picture from: %s" % instance.Creator()
-        instance.plone_log("After Creator()")
-        font = ImageFont.truetype("/usr/share/fonts/truetype/ttf-sil-gentium/GenAR102.ttf", 16)
-        instance.plone_log("After font")
+        # Ideally this would be a Plone ControlPanel configlet etc with the font as a content file upload somewhere
+        font = ImageFont.truetype(os.path.join(os.path.dirname(__file__), "GenAI102.ttf"), 16)
         textsize = textdraw.textsize(text, font=font)
-        instance.plone_log("After textsize")
         textpos = [image.size[i]-textsize[i]-self.watermark_margin[i] for i in [0,1]]
-        instance.plone_log("After textpos")
         textback = Image.new("RGBA", (textsize[0]+self.watermark_margin[0], textsize[1]+self.watermark_margin[1]), (255,255,255,255))
         textlayer.paste(textback, (textpos[0]-(self.watermark_margin[0]/2), textpos[1]-(self.watermark_margin[1]/2)), textback)
         textdraw.text(textpos, text, font=font, fill='Black')
-        instance.plone_log("After textdraw")
         textlayer = self._reduce_opacity(textlayer, 0.7)
-        instance.plone_log("Before noop")
         image = Image.composite(textlayer, image, textlayer)
         f_data = StringIO()
         image.save(f_data, 'jpeg')
